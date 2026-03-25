@@ -104,51 +104,32 @@ def step1_gl_audit(conn):
 
 # ── STEP 2: REGISTER CHECK ────────────────────────────────────────────────────
 
-def _xero_get_assets(status="Draft"):
-    """Check Xero API directly for assets by status — avoids Fivetran sync lag."""
-    token = _xero_token()
-    r = requests.get(
-        f"https://api.xero.com/assets.xro/1.0/Assets?status={status}&pageSize=1",
-        headers={"Authorization": f"Bearer {token}",
-                 "Xero-Tenant-Id": os.environ["XERO_TENANT_ID"]},
-        timeout=30,
-    )
-    if r.status_code != 200:
-        log(f"WARNING: Xero API check failed ({r.status_code}), falling back to Snowflake.")
-        return None
-    return r.json().get("pagination", {}).get("totalCount", 0)
-
-
 def step2_register_check(conn):
     print("[2/6] Xero register check")
-
-    # Check drafts directly via Xero API (avoids Fivetran lag)
-    xero_drafts = _xero_get_assets("Draft")
-    if xero_drafts is not None:
-        if xero_drafts > 0:
-            fail(f":file_cabinet: {xero_drafts} Draft asset(s) in Xero FA module. Register or delete before running.")
-        log(f"Xero API: 0 drafts (live check).")
-    else:
-        # Fallback to Snowflake if API call failed
-        cur = conn.cursor()
-        cur.execute("""
-            SELECT COUNT(*) FROM FIVETRAN.XERO.ASSET WHERE ASSET_STATUS = 'Draft'
-        """)
-        drafts = int(cur.fetchone()[0])
-        if drafts > 0:
-            fail(f":file_cabinet: {drafts} Draft asset(s) in Xero FA module. Register or delete before running.")
-
-    # Get registered count from Snowflake (still needed for downstream steps)
     cur = conn.cursor()
     cur.execute("""
-        SELECT COUNT(*), MAX(_FIVETRAN_SYNCED)
-        FROM FIVETRAN.XERO.ASSET WHERE ASSET_STATUS = 'Registered'
+        SELECT ASSET_STATUS, COUNT(*), MAX(_FIVETRAN_SYNCED)
+        FROM FIVETRAN.XERO.ASSET GROUP BY ASSET_STATUS
     """)
-    row = cur.fetchone()
-    registered = int(row[0])
-    last_sync  = row[1]
+    rows = {r[0]: {"count": int(r[1]), "sync": r[2]} for r in cur.fetchall()}
+    drafts     = rows.get("Draft",      {}).get("count", 0)
+    registered = rows.get("Registered", {}).get("count", 0)
+    last_sync  = rows.get("Registered", {}).get("sync")
 
-    log(f"{registered} registered assets. Last Fivetran sync: {last_sync}")
+    # Check Fivetran freshness — if stale, drafts may be outdated
+    stale = False
+    if last_sync:
+        hours = (datetime.datetime.utcnow() - last_sync.replace(tzinfo=None)).total_seconds() / 3600
+        if hours > 25:
+            stale = True
+            log(f"WARNING: Fivetran last synced {hours:.0f}h ago (>25h). Draft count may be stale.")
+
+    if drafts > 0 and not stale:
+        fail(f":file_cabinet: {drafts} Draft asset(s) in Xero FA module. Register or delete before running.")
+    elif drafts > 0 and stale:
+        log(f"WARNING: {drafts} Draft(s) in Snowflake but Fivetran is stale — proceeding (may be resolved in Xero).")
+
+    log(f"{registered} registered, {drafts} drafts. Last sync: {last_sync}")
     return registered
 
 
