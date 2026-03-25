@@ -1,0 +1,67 @@
+name: FA Depreciation — Month-End
+
+on:
+  schedule:
+    # 08:00 UTC on the 1st of every month
+    - cron: '0 8 1 * *'
+  workflow_dispatch:
+    # Allow manual trigger from GitHub Actions UI
+    inputs:
+      dry_run:
+        description: 'Dry run (audit only — no Xero API call)'
+        required: false
+        default: 'false'
+
+jobs:
+  depreciation:
+    name: Run month-end depreciation
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout repo
+        uses: actions/checkout@v4
+
+      - name: Set up Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      - name: Install dependencies
+        run: |
+          pip install \
+            snowflake-connector-python \
+            python-dateutil \
+            openpyxl \
+            requests \
+            google-auth \
+            google-api-python-client \
+            python-dotenv
+
+      - name: Run FA depreciation automation
+        env:
+          SNOWFLAKE_ACCOUNT:            ${{ secrets.SNOWFLAKE_ACCOUNT }}
+          SNOWFLAKE_USER:               ${{ secrets.SNOWFLAKE_USER }}
+          SNOWFLAKE_PASSWORD:           ${{ secrets.SNOWFLAKE_PASSWORD }}
+          SNOWFLAKE_DATABASE:           ${{ secrets.SNOWFLAKE_DATABASE }}
+          SNOWFLAKE_WAREHOUSE:          ${{ secrets.SNOWFLAKE_WAREHOUSE }}
+          SNOWFLAKE_SCHEMA:             ${{ secrets.SNOWFLAKE_SCHEMA }}
+          XERO_CLIENT_ID:               ${{ secrets.XERO_CLIENT_ID }}
+          XERO_CLIENT_SECRET:           ${{ secrets.XERO_CLIENT_SECRET }}
+          XERO_TENANT_ID:               ${{ secrets.XERO_TENANT_ID }}
+          XERO_REFRESH_TOKEN:           ${{ secrets.XERO_REFRESH_TOKEN }}
+          SLACK_WEBHOOK_URL:            ${{ secrets.SLACK_WEBHOOK_URL }}
+          GOOGLE_DRIVE_FOLDER_ID:       ${{ secrets.GOOGLE_DRIVE_FOLDER_ID }}
+          GOOGLE_SERVICE_ACCOUNT_JSON:  ${{ secrets.GOOGLE_SERVICE_ACCOUNT_JSON }}
+        run: |
+          cd scripts
+          python fa_depreciation.py
+
+      - name: Upload FA schedule as workflow artifact
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: FA_Schedule_FINAL
+          path: scripts/FA_Schedule_FINAL.xlsx
+          if-no-files-found: ignore
+          retention-days: 90
