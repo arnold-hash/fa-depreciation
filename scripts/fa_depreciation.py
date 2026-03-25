@@ -116,18 +116,19 @@ def step2_register_check(conn):
     registered = rows.get("Registered", {}).get("count", 0)
     last_sync  = rows.get("Registered", {}).get("sync")
 
-    # Check Fivetran freshness — if stale, drafts may be outdated
-    stale = False
-    if last_sync:
-        hours = (datetime.datetime.utcnow() - last_sync.replace(tzinfo=None)).total_seconds() / 3600
-        if hours > 25:
-            stale = True
-            log(f"WARNING: Fivetran last synced {hours:.0f}h ago (>25h). Draft count may be stale.")
+    # Check if Draft records are stale — compare their sync time, not Registered
+    draft_sync = rows.get("Draft", {}).get("sync")
+    draft_stale = False
+    if drafts > 0 and draft_sync:
+        draft_hours = (datetime.datetime.utcnow() - draft_sync.replace(tzinfo=None)).total_seconds() / 3600
+        if draft_hours > 6:
+            draft_stale = True
+            log(f"WARNING: Draft records last synced {draft_hours:.0f}h ago — may be stale (already resolved in Xero).")
 
-    if drafts > 0 and not stale:
+    if drafts > 0 and not draft_stale:
         fail(f":file_cabinet: {drafts} Draft asset(s) in Xero FA module. Register or delete before running.")
-    elif drafts > 0 and stale:
-        log(f"WARNING: {drafts} Draft(s) in Snowflake but Fivetran is stale — proceeding (may be resolved in Xero).")
+    elif drafts > 0 and draft_stale:
+        log(f"WARNING: {drafts} Draft(s) in Snowflake but data is {draft_hours:.0f}h old — proceeding.")
 
     log(f"{registered} registered, {drafts} drafts. Last sync: {last_sync}")
     return registered
