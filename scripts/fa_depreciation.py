@@ -33,6 +33,7 @@ PERIOD_END   = datetime.date(PERIOD_YEAR, PERIOD_MONTH,
 PERIOD_END_ISO = PERIOD_END.isoformat()
 
 CAP_THRESHOLD    = 100.0
+CAPEX_REVIEW_THRESHOLD = 250.0   # Flag office expenses above this for potential capitalisation
 VERIFY_TOLERANCE = 10.0
 
 
@@ -100,6 +101,30 @@ def step1_gl_audit(conn):
              f"Register in Xero FA module before re-running.")
 
     log(f"GL audit clear — {len(gl_rows)} item(s) all matched.")
+
+    # Check account 555 (Office Expense) for items that may need capitalising
+    cur.execute("""
+        SELECT TO_DATE(j.JOURNAL_DATE), j.JOURNAL_NUMBER,
+               jl.ACCOUNT_CODE, jl.DESCRIPTION, jl.NET_AMOUNT
+        FROM FIVETRAN.XERO.JOURNAL j
+        JOIN FIVETRAN.XERO.JOURNAL_LINE jl ON j.JOURNAL_ID = jl.JOURNAL_ID
+        WHERE TO_DATE(j.JOURNAL_DATE) BETWEEN %(s)s AND %(e)s
+          AND jl.ACCOUNT_CODE = '555'
+          AND jl.NET_AMOUNT > %(t)s
+        ORDER BY jl.NET_AMOUNT DESC
+    """, {"s": PERIOD_START.isoformat(), "e": PERIOD_END_ISO, "t": CAPEX_REVIEW_THRESHOLD})
+    cols555 = [d[0] for d in cur.description]
+    capex_candidates = [dict(zip(cols555, r)) for r in cur.fetchall()]
+
+    if capex_candidates:
+        lines = "\n".join(
+            f"  - {r['TO_DATE(J.JOURNAL_DATE)']} | J{r['JOURNAL_NUMBER']} | "
+            f"{r['DESCRIPTION'] or '(no description)'} | GBP {r['NET_AMOUNT']:,.2f}"
+            for r in capex_candidates
+        )
+        fail(f":warning: {len(capex_candidates)} item(s) on 555 (Office Expense) above GBP {CAPEX_REVIEW_THRESHOLD:,.0f} "
+             f"— review for potential capitalisation:\n{lines}\n"
+             f"Reclassify to 720/710 and register as FA, or confirm as expense before re-running.")
 
 
 # ── STEP 2: REGISTER CHECK ────────────────────────────────────────────────────
