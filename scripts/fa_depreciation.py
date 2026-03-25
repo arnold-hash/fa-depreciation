@@ -122,9 +122,10 @@ def step1_gl_audit(conn):
             f"{r['DESCRIPTION'] or '(no description)'} | GBP {r['NET_AMOUNT']:,.2f}"
             for r in capex_candidates
         )
-        fail(f":warning: {len(capex_candidates)} item(s) on 555 (Office Expense) above GBP {CAPEX_REVIEW_THRESHOLD:,.0f} "
-             f"— review for potential capitalisation:\n{lines}\n"
-             f"Reclassify to 720/710 and register as FA, or confirm as expense before re-running.")
+        slack(f":eyes: *Capitalisation review needed* — {len(capex_candidates)} item(s) on 555 (Office Expense) "
+              f"above GBP {CAPEX_REVIEW_THRESHOLD:,.0f}:\n{lines}\n"
+              f"Review and reclassify to 720/710 if these are fixed assets.", ":eyes:")
+        log(f"WARNING: {len(capex_candidates)} item(s) on 555 above threshold — Slack alert sent, continuing.")
 
 
 # ── STEP 2: REGISTER CHECK ────────────────────────────────────────────────────
