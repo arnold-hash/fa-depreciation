@@ -39,6 +39,7 @@ jobs:
             python-dotenv
 
       - name: Run FA depreciation automation
+        id: fa_run
         env:
           SNOWFLAKE_ACCOUNT:            ${{ secrets.SNOWFLAKE_ACCOUNT }}
           SNOWFLAKE_USER:               ${{ secrets.SNOWFLAKE_USER }}
@@ -56,6 +57,13 @@ jobs:
         run: |
           cd scripts
           python fa_depreciation.py
+
+      - name: Persist new Xero refresh token
+        if: always() && steps.fa_run.outputs.xero_refresh_token
+        env:
+          GH_TOKEN: ${{ secrets.GH_PAT }}
+        run: |
+          echo "${{ steps.fa_run.outputs.xero_refresh_token }}" | gh secret set XERO_REFRESH_TOKEN
 
       - name: Upload FA schedule as workflow artifact
         if: always()

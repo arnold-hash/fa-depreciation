@@ -172,7 +172,13 @@ def _xero_token():
     if r.status_code != 200:
         fail(f":key: Xero token refresh failed: {r.status_code} — {r.text}")
     data = r.json()
-    os.environ["XERO_REFRESH_TOKEN"] = data.get("refresh_token", os.environ["XERO_REFRESH_TOKEN"])
+    new_refresh = data.get("refresh_token", os.environ["XERO_REFRESH_TOKEN"])
+    os.environ["XERO_REFRESH_TOKEN"] = new_refresh
+    # Persist new refresh token so the GH Actions workflow can update the secret
+    gh_output = os.environ.get("GITHUB_OUTPUT")
+    if gh_output:
+        with open(gh_output, "a") as f:
+            f.write(f"xero_refresh_token={new_refresh}\n")
     return data["access_token"]
 
 def step3_run_depreciation():
